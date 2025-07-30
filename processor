@@ -1,0 +1,99 @@
+module processor(
+    input         clk,
+    input         rst,
+    output [31:0] pc,
+    output [31:0] instruction,
+    output [31:0] aluResult,
+    output [31:0] dataddr,
+    output [31:0] WD,
+    output [31:0] RD,
+    output        MemWrite,
+    output        MemtoReg,
+    output [3:0]  aluCtrl_dbg,
+    output [31:0] srcA_dbg,
+    output [31:0] srcB_dbg
+);
+    reg [31:0] pc_reg;
+    
+    // Tín hiệu cho phase shifting
+    wire [3:0] shift_value;
+    wire shifted_clk;
+    
+    // Phase Decoder & Shifter
+    phase_decoder PD (
+        .opcode(instruction[6:0]),
+        .shift_value(shift_value)
+    );
+    
+  phase_shifter PS (
+        .clk(clk),
+        .rst(rst),
+        .shift_value(shift_value),
+        .shifted_clk(shifted_clk)
+    );
+    
+    
+    // PC update sử dụng shifted_clk
+    always @(posedge shifted_clk or posedge rst) begin
+        if (rst)
+            pc_reg <= 32'd0;
+        else
+            pc_reg <= pc_reg + 4;
+    end
+    assign pc = pc_reg;
+
+    wire [31:0] instr;
+    instruction_memory IM (
+        .addr        (pc_reg),
+        .instruction (instr)
+    );
+    assign instruction = instr;
+
+    wire        regWrite, aluSrc, branch, jump;
+    wire [2:0]  aluOp;
+    control_unit CU (
+        .opcode    (instr[6:0]),
+        .regWrite  (regWrite),
+        .aluSrc    (aluSrc),
+        .memWrite  (MemWrite),
+        .memToReg  (MemtoReg),
+        .branch    (branch),
+        .jump      (jump),
+        .aluOp     (aluOp)
+    );
+
+    wire [31:0] alu_out, dataAddr, writeData, readData;
+    // Datapath sử dụng shifted_clk
+    datapath DP (
+        .clk         (shifted_clk),   // Sử dụng shifted_clk
+        .rst         (rst),
+        .instruction (instr),
+        .regWrite    (regWrite),
+        .aluSrc      (aluSrc),
+        .memToReg    (MemtoReg),
+        .branch      (branch),
+        .jump        (jump),
+        .aluOp       (aluOp),
+        .RD          (readData),
+        .aluResult   (alu_out),
+        .dataAddr    (dataAddr),
+        .writeData   (writeData),
+        .aluCtrl_dbg (aluCtrl_dbg),
+        .srcA_dbg    (srcA_dbg),
+        .srcB_dbg    (srcB_dbg)
+    );
+    assign aluResult = alu_out;
+    assign dataddr   = dataAddr;
+    assign WD        = writeData;
+    assign RD        = readData;
+
+    // Data memory sử dụng shifted_clk
+    data_memory DM (
+        .clk    (shifted_clk),   // Sử dụng shifted_clk
+        .rst    (rst),
+        .we     (MemWrite),
+        .addr   (dataAddr),
+        .wd     (writeData),
+        .rd     (readData)
+    );
+endmodule
